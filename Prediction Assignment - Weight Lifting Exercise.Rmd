@@ -1,0 +1,98 @@
+---
+title: "Prediction Assignment - Weight Lifting Exercise"
+author: "Haoran Shi"
+date: "31/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+# Summary
+
+# Data and Exploratory Analysis
+
+<HAR>[Human Activity Recognition](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) has emerged as a key research area in the last years and is gaining increasing attention by the pervasive computing research community (see picture below, that illustrates the increasing number of publications in HAR with wearable accelerometers), especially for the development of context-aware systems. There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises. 
+
+*Ugulino et al.* researched on quantify how much of a particular activity they do, but they rarely quantify how well they do it. Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available on the <WLED>[Weight Lifting Exercise Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har).
+
+We first load the libraries needed for the analysis and datasets. We will also patition the training data into training and testing set.
+```{r library and data load, message=FALSE} 
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+
+har <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test.url  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+har.data <- read.csv(url(har))
+final.test <- read.csv(url(test.url))
+
+set.seed(0)
+
+training.index <- createDataPartition(har.data$classe, p = 0.60,list=FALSE)
+train <- har.data[training.index,]
+test <- har.data[-training.index,]
+```
+
+After a quick glance of the data, it seems like the first five variables are identifiers for the participants, which should not be included in the model. Also I'd like to remove the variables that are mostly NA's or have little variances in the training set.
+```{r remove variables with little information}
+train.set <- train[,-(1:5)]
+var.na <- sapply(train.set, function(x) mean(is.na(x))) > 0.90
+train.set <- train.set[,var.na==FALSE]
+
+nzv <- nearZeroVar(train.set)
+train.set <- train.set[,-nzv]
+```
+
+After removing the variables that provided little information for the prediction exercise, `r dim(train.set)[2]` variables will be included in designing the machine learning algorithm.
+
+```{r correlation, fig.align='center'}
+cor.matrix <- cor(train.set[,-54])
+corrplot(cor.matrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.6, tl.col = 'black')
+```
+
+The correlation plot shows that there are some correlation between predicting variables; however, the correlations are not significant enough to warrant the use pre-processing methods such as principle component analysis.
+
+# Prediction Models
+
+The variable of interest **classe** is a categorical variable, thus classification models will be used. I'll build two models on the training data set, namely 1) Random Forest; 2) Stochastic Gradient Boosting. The final model will be chosen based on the accuracy on the testing set using confusion matrix. Cross validation will be used, and for this exercise, repeated k-fold cross validation, where $k=3, will be used due to the limitation of computing power. 
+
+## Random Forest
+
+```{r rf}
+fit.control <- trainControl(method = "repeatedcv",
+                            number = 3,
+                            repeats = 3)
+set.seed(1)
+har.rf <- train(classe~., data = train.set, 
+                method = "rf", trControl = fit.control)
+pred.rf <- predict(har.rf,test)
+confusionMatrix(pred.rf,as.factor(test$classe))
+```
+
+## Boosting
+
+```{r gbm}
+set.seed(2)
+har.gbm <- train(classe~., data = train.set, 
+                 method = "gbm", trControl = fit.control,
+                 verbose = FALSE)
+pred.gbm <- predict(har.gbm,test)
+confusionMatrix(pred.gbm,as.factor(test$classe))
+```
+
+## Model Comparison
+
+Both models do a very good job based on accuracy on testing set, as both of them are close to 99%. However, the random forest model performs slightly better, which will be used for the final quiz. 
+
+The prediction of the quiz data using both models is shown below - not surprisingly, they yeild the same predictions.
+```{r final quiz}
+predict(har.rf,final.test)
+predict(har.gbm,final.test)
+```
